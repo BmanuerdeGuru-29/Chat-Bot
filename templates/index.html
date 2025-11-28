@@ -62,13 +62,24 @@
             sendMessage();
         }
 
-        function addMessage(message, isUser = false) {
+        function addMessage(message, isUser = false, confidence = null) {
             const messageDiv = document.createElement('div');
             messageDiv.className = isUser ? 'user-message' : 'bot-message';
             
             const contentDiv = document.createElement('div');
             contentDiv.className = 'message-content';
-            contentDiv.textContent = message;
+            
+            if (isUser) {
+                contentDiv.textContent = message;
+            } else {
+                contentDiv.innerHTML = message;
+                if (confidence && confidence < 0.5) {
+                    const confidenceDiv = document.createElement('div');
+                    confidenceDiv.className = 'confidence-indicator';
+                    confidenceDiv.textContent = `Confidence: ${(confidence * 100).toFixed(1)}%`;
+                    contentDiv.appendChild(confidenceDiv);
+                }
+            }
             
             messageDiv.appendChild(contentDiv);
             chatMessages.appendChild(messageDiv);
@@ -97,11 +108,7 @@
                 if (data.error) {
                     addMessage('Sorry, I encountered an error. Please try again.');
                 } else {
-                    let botResponse = data.response;
-                    if (data.confidence < 0.5) {
-                        botResponse += `\n\n(Confidence: ${(data.confidence * 100).toFixed(1)}%)`;
-                    }
-                    addMessage(botResponse);
+                    addMessage(data.response, false, data.confidence);
                 }
             } catch (error) {
                 addMessage('Sorry, I encountered an error. Please try again.');
