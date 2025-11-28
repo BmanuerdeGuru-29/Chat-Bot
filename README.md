@@ -1,2 +1,2 @@
 # ChatBot
-Kwekwepoly ChatBot Digital Assistant
+Kwekwepoly ChatBot - Digital Assistant
