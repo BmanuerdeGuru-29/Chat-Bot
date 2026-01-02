@@ -11,54 +11,132 @@ faq_matcher = FAQMatcher(db)
 # Train the model on startup
 faq_matcher.fit()
 
-def format_response(text):
-    """Format the response text for better display in chat"""
-    if not text:
-        return text
+def simplify_text(text):
+    """Simplify text for better readability"""
+    # Remove excessive whitespace
+    text = re.sub(r'\s+', ' ', text)
     
-    # Replace line breaks with proper HTML line breaks
-    text = text.replace('\n', '<br>')
+    # Simplify complex sentences
+    replacements = {
+        r'is a leading and fast growing degree granting institution': 'is a leading institution offering degree programs',
+        r'provide quality technical, vocational and technopreneurial education': 'provide quality technical and vocational education',
+        r'Beacon in technical and manufacturing technology education': 'Leading institution in technical and manufacturing education',
+        r'that is relevant for industry, tailored for entrepreneurship': 'relevant for industry and entrepreneurship',
+        r'ensuring you use a valid email address that you have access to': 'using a valid email address you can access',
+        r'Create a strong password that includes': 'Create a strong password with',
+        r'All requirements of HND': 'All HND requirements',
+        r'Journeyman class 1 certificate': 'Journeyman Class 1 certificate'
+    }
     
-    # Format bullet points
-    text = re.sub(r'•\s*', '• ', text)
-    text = re.sub(r'\s*', '• ', text)
+    for pattern, replacement in replacements.items():
+        text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
     
-    # Format numbered lists
-    text = re.sub(r'(\d+)\.\s*', r'\1. ', text)
-    
-    # Format o for subpoints (like in the student portal instructions)
-    text = re.sub(r'o\s+', '• ', text)
-    
-    # Format table-like structures (for course listings)
-    lines = text.split('<br>')
+    return text
+
+def format_table_data(text):
+    """Format table-like data for better display"""
+    lines = text.split('\n')
     formatted_lines = []
     
     for line in lines:
-        # Detect table-like structures (multiple tabs or multiple spaces as separators)
-        if '\t' in line and line.count('\t') >= 2:
-            # Format as a simple table row
-            cells = [cell.strip() for cell in line.split('\t') if cell.strip()]
-            if cells:
-                formatted_line = '<strong>' + cells[0] + ':</strong> ' + ' | '.join(cells[1:])
-                formatted_lines.append(formatted_line)
+        line = line.strip()
+        if not line:
             continue
-        elif '|' in line and line.count('|') >= 2:
-            # Format pipe-separated tables
-            cells = [cell.strip() for cell in line.split('|') if cell.strip()]
-            if len(cells) >= 2:
-                formatted_line = '<strong>' + cells[0] + ':</strong> ' + ' | '.join(cells[1:])
-                formatted_lines.append(formatted_line)
-            continue
+            
+        # Handle course listings (tab-separated)
+        if '\t' in line and len(line.split('\t')) >= 2:
+            parts = [p.strip() for p in line.split('\t')]
+            if 'NC' in line or 'ND' in line or 'HND' in line:
+                # Course level line
+                course_name = parts[0] if parts[0] else "Various"
+                levels = [p for p in parts[1:] if p]
+                if levels:
+                    formatted_lines.append(f"• <strong>{course_name}</strong>: {', '.join(levels)}")
+            elif any(term in line.lower() for term in ['division', 'department', 'course']):
+                # Header line - skip or format as bold
+                if line.lower() not in ['division', 'department', 'course', 'level']:
+                    formatted_lines.append(f"<br><strong>{' | '.join(parts)}</strong>")
         else:
             formatted_lines.append(line)
     
-    text = '<br>'.join(formatted_lines)
+    return '<br>'.join(formatted_lines)
+
+def format_response(text):
+    """Format the response text for clean, readable display"""
+    if not text:
+        return text
     
-    # Add strong formatting to headings
-    text = re.sub(r'(\d+\.\d+\s+.+?):', r'<strong>\1:</strong>', text)
-    text = re.sub(r'^(REQUIREMENTS|DURATION|COURSE|NB:)', r'<strong>\1</strong>', text, flags=re.IGNORECASE | re.MULTILINE)
+    # Simplify text first
+    text = simplify_text(text)
     
-    return text
+    # Clean up bullet points and lists
+    text = re.sub(r'[•]\s*', '<li>', text)
+    text = re.sub(r'(\d+)\.\s+', r'<li>', text)  # Numbered lists become bullet points
+    text = re.sub(r'o\s+', '<li>', text)  # Subpoints
+    
+    # Handle lists
+    lines = text.split('\n')
+    formatted_lines = []
+    in_list = False
+    
+    for i, line in enumerate(lines):
+        line = line.strip()
+        if not line:
+            continue
+            
+        # Check if line starts a list item
+        if line.startswith('<li>'):
+            if not in_list:
+                formatted_lines.append('<ul>')
+                in_list = True
+            content = line[4:].strip()
+            # Clean up content
+            content = re.sub(r':$', '', content)
+            formatted_lines.append(f'<li>{content}</li>')
+        else:
+            if in_list:
+                formatted_lines.append('</ul>')
+                in_list = False
+            
+            # Handle headings
+            if re.match(r'^[A-Z][A-Z\s]+:$', line) or re.match(r'^[A-Z][a-zA-Z\s]+:$', line):
+                formatted_lines.append(f'<strong>{line}</strong>')
+            elif re.match(r'^\d+\.\d+\s+.+:', line):
+                # Numbered sections
+                formatted_lines.append(f'<strong>{line}</strong>')
+            elif ':' in line and len(line) < 100:
+                # Short lines with colons might be labels
+                parts = line.split(':', 1)
+                if len(parts) == 2 and len(parts[0].strip()) < 30:
+                    formatted_lines.append(f'<div class="info-grid"><span class="info-label">{parts[0].strip()}:</span><span class="info-value">{parts[1].strip()}</span></div>')
+                else:
+                    formatted_lines.append(line)
+            else:
+                # Regular paragraph
+                if line and not line.startswith('<'):
+                    # Add periods if missing
+                    if not line.endswith(('.', '!', '?', ':', ';')):
+                        line += '.'
+                    formatted_lines.append(f'<p>{line}</p>')
+    
+    if in_list:
+        formatted_lines.append('</ul>')
+    
+    # Join and clean up
+    result = '\n'.join(formatted_lines)
+    
+    # Fix double paragraphs
+    result = re.sub(r'</p>\s*<p>', '<br>', result)
+    
+    # Handle steps in instructions
+    if any(word in result.lower() for word in ['step', 'visit', 'click', 'enter', 'fill']):
+        result = re.sub(r'<p>(\d+)\.\s+(.+?)</p>', r'<div class="step"><strong>Step \1:</strong> \2</div>', result)
+    
+    # Format course listings
+    if 'engineering' in result.lower() or 'commerce' in result.lower():
+        result = format_table_data(result)
+    
+    return result
 
 @app.route('/')
 def index():
@@ -77,6 +155,15 @@ def chat():
         
         if best_match and confidence > 0.3:
             response = format_response(best_match['answer'])
+            
+            # Add a friendly intro for better responses
+            if confidence > 0.7:
+                intro = "Here's what I found about that:<br><br>"
+                response = intro + response
+            elif confidence > 0.5:
+                intro = "Based on available information:<br><br>"
+                response = intro + response
+            
             # Save to chat history
             db.save_chat_history(user_message, response, confidence)
             
@@ -86,7 +173,10 @@ def chat():
                 'matched_question': best_match['question']
             })
         else:
-            fallback_response = "I'm sorry, I couldn't find a good match for your question. Please try rephrasing or contact support for more specific queries."
+            fallback_response = "I'm sorry, I couldn't find specific information about that. Could you try rephrasing your question or ask about:"
+            fallback_response += "<br><br>• Course offerings<br>• Admission requirements<br>• Student portal setup<br>• Available programs"
+            fallback_response += "<br><br>Or contact our support team for more specific queries."
+            
             db.save_chat_history(user_message, fallback_response, confidence or 0.0)
             
             return jsonify({

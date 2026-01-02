@@ -5,31 +5,34 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Kwekwe Poly Chatbot</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
     <div class="container">
         <header>
-            <img src="logo.jpg" alt="Kwekwe Poly Logo" class="logo">
+            <img src="{{ url_for('static', filename='logo.jpg') }}" alt="Kwekwe Poly Logo" class="logo">
             <h1>Kwekwe Poly Chatbot</h1>
-            <p>What enquiries might you have about Kwekwe Poly?</p>
+            <p>Get instant answers about courses, admissions, and campus information</p>
         </header>
 
         <div class="chat-container">
             <div class="chat-messages" id="chatMessages">
                 <div class="bot-message">
                     <div class="message-content">
-                        Hello! I'm your FAQ assistant. How can I help you today?
+                        Hello! I'm here to help with information about Kwekwe Polytechnic. You can ask me about courses, admissions, requirements, or any other campus information. How can I assist you today?
                     </div>
                 </div>
             </div>
 
             <div class="chat-input">
-                <input type="text" id="userInput" placeholder="Type your question here..." autocomplete="off">
+                <input type="text" id="userInput" placeholder="Ask about courses, admissions, or requirements..." autocomplete="off">
                 <button id="sendButton">Send</button>
             </div>
 
             <div class="suggested-questions">
-                <h3>Suggested Questions:</h3>
+                <h3>Common Questions:</h3>
                 <div id="suggestedQuestions"></div>
             </div>
         </div>
@@ -41,25 +44,40 @@
         const sendButton = document.getElementById('sendButton');
         const suggestedQuestions = document.getElementById('suggestedQuestions');
 
+        // Common questions to show if API fails
+        const defaultQuestions = [
+            "What courses do you offer?",
+            "How do I create my student portal?",
+            "What are the admission requirements?",
+            "Do you have short courses?",
+            "What is your mission and vision?"
+        ];
+
         // Load suggested questions
         async function loadSuggestedQuestions() {
             try {
                 const response = await fetch('/faqs');
-                const faqs = await response.json();
+                if (!response.ok) throw new Error('API failed');
                 
-                // Show first 5 questions as suggestions
+                const faqs = await response.json();
                 const suggestions = faqs.slice(0, 5);
+                
                 suggestedQuestions.innerHTML = suggestions.map(faq => 
                     `<div class="suggestion" onclick="askQuestion('${faq.question.replace(/'/g, "\\'")}')">${faq.question}</div>`
                 ).join('');
             } catch (error) {
-                console.error('Error loading suggestions:', error);
+                console.log('Using default questions');
+                // Use default questions if API fails
+                suggestedQuestions.innerHTML = defaultQuestions.map(question => 
+                    `<div class="suggestion" onclick="askQuestion('${question.replace(/'/g, "\\'")}')">${question}</div>`
+                ).join('');
             }
         }
 
         function askQuestion(question) {
             userInput.value = question;
-            sendMessage();
+            userInput.focus();
+            setTimeout(sendMessage, 100); // Small delay for better UX
         }
 
         function addMessage(message, isUser = false, confidence = null) {
@@ -76,7 +94,7 @@
                 if (confidence && confidence < 0.5) {
                     const confidenceDiv = document.createElement('div');
                     confidenceDiv.className = 'confidence-indicator';
-                    confidenceDiv.textContent = `Confidence: ${(confidence * 100).toFixed(1)}%`;
+                    confidenceDiv.textContent = `Confidence: ${(confidence * 100).toFixed(0)}%`;
                     contentDiv.appendChild(confidenceDiv);
                 }
             }
@@ -93,6 +111,8 @@
             // Add user message to chat
             addMessage(message, true);
             userInput.value = '';
+            sendButton.disabled = true;
+            sendButton.textContent = 'Sending...';
 
             try {
                 const response = await fetch('/chat', {
@@ -106,22 +126,31 @@
                 const data = await response.json();
                 
                 if (data.error) {
-                    addMessage('Sorry, I encountered an error. Please try again.');
+                    addMessage('Sorry, I encountered an error processing your request. Please try again.');
                 } else {
                     addMessage(data.response, false, data.confidence);
                 }
             } catch (error) {
-                addMessage('Sorry, I encountered an error. Please try again.');
+                addMessage('Sorry, I am having trouble connecting right now. Please try again in a moment.');
                 console.error('Error:', error);
+            } finally {
+                sendButton.disabled = false;
+                sendButton.textContent = 'Send';
             }
         }
 
         // Event listeners
         sendButton.addEventListener('click', sendMessage);
         userInput.addEventListener('keypress', (e) => {
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
                 sendMessage();
             }
+        });
+
+        // Focus input on load
+        window.addEventListener('load', () => {
+            userInput.focus();
         });
 
         // Load suggestions on startup
